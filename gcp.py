@@ -19,9 +19,12 @@ DEFAULT_PROJECT_ID = "pelagic-pod-432503-h1"
 GITHUB_REPO = "fatekey/gcp_free"
 GITHUB_BRANCH = "master"
 GITHUB_RAW_BASE = f"https://raw.githubusercontent.com/{GITHUB_REPO}/{GITHUB_BRANCH}"
+GITHUB_RAW_SCRIPTS_BASE = f"{GITHUB_RAW_BASE}/scripts"
 REMOTE_SCRIPT_URLS = {
-    "apt": f"{GITHUB_RAW_BASE}/apt.sh",
-    "dae": f"{GITHUB_RAW_BASE}/dae.sh",
+    "apt": f"{GITHUB_RAW_SCRIPTS_BASE}/apt.sh",
+    "dae": f"{GITHUB_RAW_SCRIPTS_BASE}/dae.sh",
+    "net_iptables": f"{GITHUB_RAW_SCRIPTS_BASE}/net_iptables.sh",
+    "net_shutdown": f"{GITHUB_RAW_SCRIPTS_BASE}/net_shutdown.sh",
 }
 
 REGION_OPTIONS = [
@@ -591,6 +594,22 @@ def run_remote_script(project_id, instance_info, script_key, remote_config):
         return False
 
 
+def select_traffic_monitor_script():
+    print("\n--- 请选择流量监控脚本 ---")
+    print("[1] 安装 iptables 流量监控 (net_iptables.sh)")
+    print("[2] 安装 超额自动关机 (net_shutdown.sh)")
+    print("[0] 返回")
+    while True:
+        choice = input("请输入数字选择: ").strip()
+        if choice == "1":
+            return "net_iptables"
+        if choice == "2":
+            return "net_shutdown"
+        if choice == "0":
+            return None
+        print("输入无效，请重试。")
+
+
 def deploy_dae_config(project_id, instance_info, remote_config):
     local_config = os.path.join(os.path.dirname(os.path.abspath(__file__)), "config.dae")
     if not os.path.isfile(local_config):
@@ -665,6 +684,7 @@ def main():
         print("[5] 换源")
         print("[6] 安装 dae")
         print("[7] 上传 config.dae 并启用 dae")
+        print("[8] 安装流量监控脚本")
         print("[0] 退出")
         choice = input("请输入数字选择: ").strip()
 
@@ -709,6 +729,16 @@ def main():
                     remote_config = pick_remote_method()
                 if remote_config:
                     deploy_dae_config(project_id, current_instance, remote_config)
+        elif choice == "8":
+            if not current_instance:
+                current_instance = select_instance(project_id)
+            if current_instance:
+                script_key = select_traffic_monitor_script()
+                if script_key:
+                    if not remote_config:
+                        remote_config = pick_remote_method()
+                    if remote_config:
+                        run_remote_script(project_id, current_instance, script_key, remote_config)
         elif choice == "0":
             print("已退出。")
             break
