@@ -26,6 +26,10 @@ REMOTE_SCRIPT_URLS = {
     "net_iptables": f"{GITHUB_RAW_SCRIPTS_BASE}/net_iptables.sh",
     "net_shutdown": f"{GITHUB_RAW_SCRIPTS_BASE}/net_shutdown.sh",
 }
+FIREWALL_RULES_TO_CLEAN = [
+    "allow-all-ingress-custom",
+    "deny-cdn-egress-custom",
+]
 
 REGION_OPTIONS = [
     {"name": "俄勒冈 (Oregon) [推荐]", "region": "us-west1", "default_zone": "us-west1-b"},
@@ -458,6 +462,92 @@ def configure_firewall(project_id, network):
     print("\n所有操作完成。")
 
 
+def is_not_found_error(exc):
+    msg = str(exc).lower()
+    return "notfound" in msg or "not found" in msg or "404" in msg
+
+
+def delete_firewall_rule(project_id, rule_name):
+    firewall_client = compute_v1.FirewallsClient()
+    try:
+        operation = firewall_client.delete(project=project_id, firewall=rule_name)
+        operation_client = compute_v1.GlobalOperationsClient()
+        operation_client.wait(project=project_id, operation=operation.name)
+        print_success(f"已删除防火墙规则: {rule_name}")
+        return True
+    except Exception as e:
+        if is_not_found_error(e):
+            print_info(f"防火墙规则不存在，已跳过: {rule_name}")
+            return True
+        print_warning(f"删除防火墙规则失败: {rule_name} ({e})")
+        return False
+
+
+def delete_disks_if_needed(project_id, zone, disk_names):
+    if not disk_names:
+        return True
+    disk_client = compute_v1.DisksClient()
+    all_ok = True
+    for disk_name in disk_names:
+        try:
+            operation = disk_client.delete(project=project_id, zone=zone, disk=disk_name)
+            wait_for_operation(project_id, zone, operation.name)
+            print_success(f"已删除磁盘: {disk_name}")
+        except Exception as e:
+            if is_not_found_error(e):
+                print_info(f"磁盘不存在，已跳过: {disk_name}")
+            else:
+                print_warning(f"删除磁盘失败: {disk_name} ({e})")
+                all_ok = False
+    return all_ok
+
+
+def delete_free_resources(project_id, instance_info):
+    instance_name = instance_info["name"]
+    zone = instance_info["zone"]
+
+    print("\n------------------------------------------------")
+    print("即将删除以下资源（用于避免产生费用）：")
+    print(f"- 实例: {instance_name} ({zone})")
+    print(f"- 相关磁盘（如仍存在）")
+    print(f"- 防火墙规则: {', '.join(FIREWALL_RULES_TO_CLEAN)}")
+    confirm = input("请输入 DELETE 确认删除: ").strip()
+    if confirm != "DELETE":
+        print("已取消删除操作。")
+        return False
+
+    instance_client = compute_v1.InstancesClient()
+    disk_names = []
+    try:
+        inst = instance_client.get(project=project_id, zone=zone, instance=instance_name)
+        for disk in inst.disks:
+            if disk.source:
+                disk_names.append(disk.source.split("/")[-1])
+    except Exception as e:
+        print_warning(f"读取实例信息失败，磁盘清理可能不完整: {e}")
+
+    print_info("正在删除实例...")
+    try:
+        operation = instance_client.delete(project=project_id, zone=zone, instance=instance_name)
+        wait_for_operation(project_id, zone, operation.name)
+        print_success("实例已删除。")
+    except Exception as e:
+        if is_not_found_error(e):
+            print_info("实例不存在，已跳过删除。")
+        else:
+            print_warning(f"实例删除失败: {e}")
+            return False
+
+    delete_disks_if_needed(project_id, zone, disk_names)
+
+    print_info("正在清理防火墙规则...")
+    for rule_name in FIREWALL_RULES_TO_CLEAN:
+        delete_firewall_rule(project_id, rule_name)
+
+    print_success("清理完成。建议到控制台确认无残留资源。")
+    return True
+
+
 def pick_remote_method():
     has_gcloud = shutil.which("gcloud") is not None
     has_ssh = shutil.which("ssh") is not None
@@ -685,6 +775,7 @@ def main():
         print("[6] 安装 dae")
         print("[7] 上传 config.dae 并启用 dae")
         print("[8] 安装流量监控脚本")
+        print("[9] 删除当前免费资源")
         print("[0] 退出")
         choice = input("请输入数字选择: ").strip()
 
@@ -739,6 +830,12 @@ def main():
                         remote_config = pick_remote_method()
                     if remote_config:
                         run_remote_script(project_id, current_instance, script_key, remote_config)
+        elif choice == "9":
+            if not current_instance:
+                current_instance = select_instance(project_id)
+            if current_instance:
+                if delete_free_resources(project_id, current_instance):
+                    current_instance = None
         elif choice == "0":
             print("已退出。")
             break
