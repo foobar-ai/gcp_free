@@ -12,7 +12,7 @@
 #
 #   作者:   基于用户需求生成的 AI 脚本
 #   版本:   1.2
-#   更新地址: https://github.com/foobar4j/gcp_free
+#   更新地址: https://github.com/foobar-ai/gcp_free
 #
 # ==============================================================================
 
@@ -24,7 +24,7 @@ NC='\033[0m' # No Color
 
 # 脚本信息
 SCRIPT_VERSION="1.2"
-SCRIPT_URL="https://raw.githubusercontent.com/foobar4j/gcp_free/main/init_gcp.sh"
+SCRIPT_URL="https://raw.githubusercontent.com/foobar-ai/gcp_free/main/init_gcp.sh"
 
 # 自更新函数
 update_script() {
