@@ -126,8 +126,13 @@ EOF
         # 增加延时，确保 Docker 网桥完全就绪
         sleep 2
 
-        if systemctl is-active --quiet dae; then
-            echo -e "${YELLOW}检测到 dae 服务正在运行，正在配置 Docker 网桥...${NC}"
+        if systemctl list-unit-files | grep -q dae.service; then
+            if systemctl is-active --quiet dae; then
+                echo -e "${YELLOW}检测到 dae 服务正在运行，正在配置 Docker 网桥...${NC}"
+            else
+                echo -e "${YELLOW}检测到 dae 服务已安装但未运行。${NC}"
+                echo -e "${YELLOW}正在配置 Docker 网桥...${NC}"
+            fi
 
             # 获取所有 Docker 网桥接口
             DOCKER_BRIDGES=$(ip a | grep -E '^[0-9]+: (docker|br-)' | awk -F': ' '{print $2}' | awk '{print $1}' | tr '\n' ',' | sed 's/,$//')
@@ -148,6 +153,25 @@ EOF
                         echo -e "${YELLOW}在配置文件中添加 lan_interface 配置...${NC}"
                         echo "lan_interface: $DOCKER_BRIDGES" >> "$DAE_CONFIG"
                     fi
+                    echo -e "${YELLOW}Docker 网桥列表: $DOCKER_BRIDGES${NC}"
+
+                    # 提示重启或启动 dae 服务
+                    echo -e "${YELLOW}--> dae 配置已更新。${NC}"
+                    if systemctl is-active --quiet dae; then
+                        echo -e "${YELLOW}请手动执行重启命令以应用配置: systemctl restart dae${NC}"
+                    else
+                        echo -e "${YELLOW}请手动执行启动命令: systemctl start dae${NC}"
+                    fi
+                    echo -e "${YELLOW}如果启动失败，请检查配置文件: /usr/local/etc/dae/config.dae${NC}"
+                else
+                    echo -e "${YELLOW}未找到 dae 配置文件，跳过配置。${NC}"
+                fi
+            else
+                echo -e "${YELLOW}未检测到 Docker 网桥接口。${NC}"
+            fi
+        else
+            echo -e "${YELLOW}dae 服务未安装，跳过配置。${NC}"
+        fi
                     echo -e "${YELLOW}Docker 网桥列表: $DOCKER_BRIDGES${NC}"
 
                     # 重启 dae 服务
