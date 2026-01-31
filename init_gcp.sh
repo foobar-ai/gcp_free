@@ -5,14 +5,14 @@
 #          一键初始化Google Cloud (GCP) 等云服务器脚本
 #
 #   功能:
-#   1. 开启 root 用户密码登录 SSH（必选）。
-#   2. 安装 1Panel 管理面板（必选）。
-#   3. 配置 Docker 镜像源和 dae 网桥（必选）。
-#   4. 安装 x-ui-yg 脚本，用于科学上网（必选）。
-#   5. init_gcp.sh 脚本更新（可选）。
+#   1. 开启 root 用户密码登录 SSH。
+#   2. 安装 1Panel 管理面板。
+#   3. 配置 Docker 镜像源和 dae 网桥。
+#   4. 安装 x-ui-yg 脚本，用于科学上网。
+#   5. init_gcp.sh 脚本更新。
 #
 #   作者:   基于用户需求生成的 AI 脚本
-#   版本:   1.2
+#   版本:   1.3
 #   更新地址: https://github.com/foobar-ai/gcp_free
 #
 # ==============================================================================
@@ -24,10 +24,154 @@ RED='\033[0;31m'
 NC='\033[0m' # No Color
 
 # 脚本信息
-SCRIPT_VERSION="1.2"
+SCRIPT_VERSION="1.3"
 SCRIPT_URL="https://raw.githubusercontent.com/foobar-ai/gcp_free/master/init_gcp.sh"
 
-# 自更新函数
+# ==================== 功能函数 ====================
+
+# 1. 开启 SSH Root 登录
+configure_ssh() {
+    echo -e "${GREEN}--- 配置 Root 用户 SSH 登录 ---${NC}"
+    {
+        # 使用 sed 命令修改 sshd_config 文件，更安全可靠
+        sed -i 's/^#\?PermitRootLogin.*/PermitRootLogin yes/' /etc/ssh/sshd_config
+        sed -i 's/^#\?PasswordAuthentication.*/PasswordAuthentication yes/' /etc/ssh/sshd_config
+    } &> /dev/null
+    echo -e "配置文件 /etc/ssh/sshd_config 修改完成。"
+
+    # 重启 SSH 服务
+    echo -e "正在重启 SSH 服务..."
+    if command -v systemctl &> /dev/null; then
+        systemctl restart sshd
+    else
+        /etc/init.d/ssh restart
+    fi
+    echo -e "SSH 服务已重启。"
+
+    # 设置 root 密码
+    echo -e "${YELLOW}接下来，请为 root 用户设置一个安全的登录密码:${NC}"
+    
+    PASSWORD_SET_SUCCESS=false
+    while [ "$PASSWORD_SET_SUCCESS" = false ]; do
+        if passwd root; then
+            PASSWORD_SET_SUCCESS=true
+            echo -e "${GREEN}Root 密码设置成功！现在你可以通过 SSH 客户端使用 root 和新密码登录。${NC}"
+        else
+            echo -e "${RED}密码设置失败，请重试。${NC}"
+            read -p "是否跳过设置 root 密码? (y/n) [默认 n]: " SKIP_PASSWORD
+            if [[ "$SKIP_PASSWORD" =~ ^[yY](es)?$ ]]; then
+                echo -e "${YELLOW}已跳过设置 root 密码。${NC}"
+                PASSWORD_SET_SUCCESS=true
+            fi
+        fi
+    done
+    echo
+    read -p "按回车键返回菜单..."
+}
+
+# 2. 安装 1Panel
+install_1panel() {
+    echo -e "${GREEN}--- 安装 1Panel 管理面板 ---${NC}"
+    echo -e "${YELLOW}--> 正在安装 1Panel...${NC}"
+    bash -c "$(curl -sSL https://resource.fit2cloud.com/1panel/package/v2/quick_start.sh)"
+    echo
+    read -p "按回车键返回菜单..."
+}
+
+# 3. 配置 Docker 和 dae
+configure_docker_dae() {
+    echo -e "${GREEN}--- 配置 Docker 镜像源和 dae 网桥 ---${NC}"
+
+    # 检查 Docker 是否已安装
+    if ! command -v docker &> /dev/null; then
+        echo -e "${YELLOW}警告: 未检测到 Docker，跳过配置。${NC}"
+        echo -e "${YELLOW}如需使用 Docker，请先安装 Docker 后手动配置。${NC}"
+    else
+        echo -e "${GREEN}检测到 Docker 已安装。${NC}"
+
+        # 配置 Docker 镜像源
+        DOCKER_DAEMON_CONFIG="/etc/docker/daemon.json"
+
+        # 确保 /etc/docker 目录存在
+        if [ ! -d "/etc/docker" ]; then
+            echo -e "${YELLOW}创建 /etc/docker 目录...${NC}"
+            mkdir -p /etc/docker
+        fi
+
+        if [ -f "$DOCKER_DAEMON_CONFIG" ]; then
+            echo -e "${YELLOW}检测到已存在 $DOCKER_DAEMON_CONFIG，备份中...${NC}"
+            cp "$DOCKER_DAEMON_CONFIG" "${DOCKER_DAEMON_CONFIG}.bak"
+        fi
+
+        # 创建或更新 Docker 配置文件
+        cat > "$DOCKER_DAEMON_CONFIG" << 'EOF'
+{
+  "registry-mirrors": ["http://mirror.gcr.io"]
+}
+EOF
+
+        echo -e "${GREEN}Docker 镜像源已配置为 http://mirror.gcr.io${NC}"
+
+        # 重启 Docker 服务
+        echo -e "${YELLOW}--> 正在重启 Docker 服务...${NC}"
+        systemctl restart docker
+
+        if [ $? -eq 0 ]; then
+            echo -e "${GREEN}Docker 服务重启成功。${NC}"
+        else
+            echo -e "${RED}Docker 服务重启失败。${NC}"
+        fi
+
+        # 检查并配置 dae（如果存在）
+        if systemctl is-active --quiet dae; then
+            echo -e "${YELLOW}检测到 dae 服务正在运行，正在配置 Docker 网桥...${NC}"
+
+            # 获取所有 Docker 网桥接口
+            DOCKER_BRIDGES=$(ip a | grep -E '^[0-9]+: (docker|br-)' | awk -F': ' '{print $2}' | awk '{print $1}' | tr '\n' ',' | sed 's/,$//')
+
+            if [ -n "$DOCKER_BRIDGES" ]; then
+                DAE_CONFIG="/usr/local/etc/dae/config.dae"
+
+                if [ -f "$DAE_CONFIG" ]; then
+                    echo -e "${YELLOW}检测到 dae 配置文件，正在更新...${NC}"
+                    cp "$DAE_CONFIG" "${DAE_CONFIG}.bak"
+
+                    # 更新 lan_interface 配置
+                    if grep -q "^lan_interface:" "$DAE_CONFIG"; then
+                        sed -i "s/^lan_interface:.*/lan_interface: $DOCKER_BRIDGES/" "$DAE_CONFIG"
+                    else
+                        echo -e "${YELLOW}在配置文件中添加 lan_interface 配置...${NC}"
+                        echo "lan_interface: $DOCKER_BRIDGES" >> "$DAE_CONFIG"
+                    fi
+
+                    # 重启 dae 服务
+                    systemctl restart dae
+                    echo -e "${GREEN}dae 服务已重启，Docker 网桥 ($DOCKER_BRIDGES) 已配置。${NC}"
+                else
+                    echo -e "${YELLOW}未找到 dae 配置文件，跳过配置。${NC}"
+                fi
+            else
+                echo -e "${YELLOW}未检测到 Docker 网桥接口。${NC}"
+            fi
+        else
+            echo -e "${YELLOW}dae 服务未运行，跳过配置。${NC}"
+        fi
+    fi
+    echo
+    read -p "按回车键返回菜单..."
+}
+
+# 4. 安装 x-ui-yg
+install_xui() {
+    echo -e "${GREEN}--- 安装 x-ui-yg 科学上网脚本 ---${NC}"
+    echo -e "${YELLOW}--> 正在执行 x-ui-yg 安装脚本...${NC}"
+    echo -e "${YELLOW}安装过程将是交互式的，请根据提示进行操作。${NC}"
+    bash <(curl -Ls https://raw.githubusercontent.com/yonggekkk/x-ui-yg/main/install.sh)
+    echo
+    read -p "按回车键返回菜单..."
+}
+
+# 5. 脚本更新
 update_script() {
     echo -e "${YELLOW}--> 正在检查更新...${NC}"
 
@@ -36,7 +180,9 @@ update_script() {
     if ! curl -fsSL "$SCRIPT_URL" -o "$TEMP_SCRIPT"; then
         echo -e "${RED}错误: 无法下载远程脚本，请检查网络连接。${NC}"
         rm -f "$TEMP_SCRIPT"
-        exit 1
+        # 如果是命令行参数调用，直接退出
+        if [ "$1" = "exit_on_error" ]; then exit 1; fi
+        return 1
     fi
 
     # 提取远程版本号
@@ -46,7 +192,10 @@ update_script() {
     if [ "$REMOTE_VERSION" = "$SCRIPT_VERSION" ]; then
         echo -e "${GREEN}当前已是最新版本 v${SCRIPT_VERSION}。${NC}"
         rm -f "$TEMP_SCRIPT"
-        exit 0
+        # 如果是命令行参数调用，直接退出
+        if [ "$1" = "exit_on_error" ]; then exit 0; fi
+        read -p "按回车键返回菜单..."
+        return 0
     fi
 
     echo -e "${YELLOW}发现新版本: v${REMOTE_VERSION} (当前: v${SCRIPT_VERSION})${NC}"
@@ -67,29 +216,27 @@ update_script() {
 
         echo -e "${GREEN}脚本已更新到 v${REMOTE_VERSION}！${NC}"
         echo -e "${YELLOW}请重新运行脚本: bash $CURRENT_SCRIPT${NC}"
+        rm -f "$TEMP_SCRIPT"
+        exit 0
     else
         echo -e "${YELLOW}已取消更新。${NC}"
     fi
 
     rm -f "$TEMP_SCRIPT"
-    exit 0
+    read -p "按回车键返回菜单..."
 }
+
+# ==================== 主逻辑 ====================
 
 # 检查命令行参数
 if [ "$1" = "--update" ] || [ "$1" = "-u" ]; then
-    update_script
+    update_script "exit_on_error"
+    exit 0
 fi
 
-# --- 步骤 0: 检查权限和环境 ---
+# 检查权限和环境
 clear
-echo -e "${GREEN}=====================================================${NC}"
-echo -e "${GREEN}     欢迎使用云服务器一键初始化脚本 v${SCRIPT_VERSION}       ${NC}"
-echo -e "${GREEN}=====================================================${NC}"
-echo
-echo -e "${YELLOW}提示: 使用 '$0 --update' 或 '$0 -u' 可更新脚本到最新版本${NC}"
-echo
-
-# 检查是否通过管道执行（curl ... | bash）
+# 检查是否通过管道执行
 if [ "$0" = "bash" ] || [ "$0" = "/bin/bash" ] || [ "$0" = "/usr/bin/bash" ]; then
     echo -e "${RED}警告: 检测到脚本通过管道方式执行。${NC}"
     echo -e "${YELLOW}这种方式无法交互式设置 root 密码。${NC}"
@@ -106,160 +253,48 @@ if [ "$(id -u)" -ne 0 ]; then
    exit 1
 fi
 
-# 更新软件包列表
-echo -e "${YELLOW}--> 正在更新系统软件包列表 (apt update)...${NC}"
-apt update > /dev/null 2>&1
-echo -e "${GREEN}软件包列表更新完成。${NC}"
-echo
+# 主循环
+while true; do
+    clear
+    echo -e "${GREEN}=====================================================${NC}"
+    echo -e "${GREEN}     云服务器一键初始化脚本 v${SCRIPT_VERSION}       ${NC}"
+    echo -e "${GREEN}=====================================================${NC}"
+    echo -e "${YELLOW}作者: foobar-ai${NC}"
+    echo -e "${YELLOW}项目: https://github.com/foobar-ai/gcp_free${NC}"
+    echo
+    echo -e "  1. 开启 Root 用户 SSH 登录"
+    echo -e "  2. 安装 1Panel 管理面板"
+    echo -e "  3. 配置 Docker 镜像源和 dae 网桥"
+    echo -e "  4. 安装 x-ui-yg 科学上网脚本"
+    echo -e "  5. 更新本脚本"
+    echo -e "  6. 退出"
+    echo
+    echo -e "${GREEN}=====================================================${NC}"
+    read -p "请输入选项 [1-6]: " CHOICE
 
-# 安装必要工具
-echo -e "${YELLOW}--> 正在安装 curl, wget, sudo 等基础工具...${NC}"
-apt install -y curl wget sudo > /dev/null 2>&1
-echo -e "${GREEN}基础工具安装完成。${NC}"
-echo
-
-# --- 步骤 1: 开启 Root 用户 SSH 密码登录 ---
-echo -e "${GREEN}--- 步骤 1/3: 配置 Root 用户 SSH 登录 ---${NC}"
-{
-    # 使用 sed 命令修改 sshd_config 文件，更安全可靠
-    # 允许 root 登录
-    sed -i 's/^#\?PermitRootLogin.*/PermitRootLogin yes/' /etc/ssh/sshd_config
-    # 开启密码认证
-    sed -i 's/^#\?PasswordAuthentication.*/PasswordAuthentication yes/' /etc/ssh/sshd_config
-} &> /dev/null
-echo -e "配置文件 /etc/ssh/sshd_config 修改完成。"
-
-# 重启 SSH 服务，自动判断系统类型
-echo -e "正在重启 SSH 服务..."
-if command -v systemctl &> /dev/null; then
-    systemctl restart sshd
-else
-    /etc/init.d/ssh restart
-fi
-echo -e "SSH 服务已重启。"
-
-# 设置 root 密码
-echo -e "${YELLOW}接下来，请为 root 用户设置一个安全的登录密码:${NC}"
-
-PASSWORD_SET_SUCCESS=false
-while [ "$PASSWORD_SET_SUCCESS" = false ]; do
-    if passwd root; then
-        PASSWORD_SET_SUCCESS=true
-        echo -e "${GREEN}Root 密码设置成功！现在你可以通过 SSH 客户端使用 root 和新密码登录。${NC}"
-    else
-        echo -e "${RED}密码设置失败，请重试。${NC}"
-        read -p "是否跳过设置 root 密码? (y/n) [默认 n]: " SKIP_PASSWORD
-        if [[ "$SKIP_PASSWORD" =~ ^[yY](es)?$ ]]; then
-            echo -e "${YELLOW}已跳过设置 root 密码。${NC}"
-            PASSWORD_SET_SUCCESS=true
-        fi
-    fi
+    case "$CHOICE" in
+        1)
+            configure_ssh
+            ;;
+        2)
+            install_1panel
+            ;;
+        3)
+            configure_docker_dae
+            ;;
+        4)
+            install_xui
+            ;;
+        5)
+            update_script
+            ;;
+        6)
+            echo -e "${GREEN}退出脚本。感谢使用！${NC}"
+            exit 0
+            ;;
+        *)
+            echo -e "${RED}无效的选项，请重新输入。${NC}"
+            sleep 1
+            ;;
+    esac
 done
-echo
-
-# --- 步骤 2: 安装服务器管理面板 ---
-echo -e "${GREEN}--- 步骤 2/4: 安装服务器管理面板 ---${NC}"
-echo -e "${YELLOW}--> 正在安装 1Panel...${NC}"
-bash -c "$(curl -sSL https://resource.fit2cloud.com/1panel/package/v2/quick_start.sh)"
-echo
-
-# --- 步骤 3: 配置 Docker 镜像源和 dae 网桥 ---
-echo -e "${GREEN}--- 步骤 3/4: 配置 Docker 镜像源和 dae 网桥 ---${NC}"
-
-# 检查 Docker 是否已安装
-if ! command -v docker &> /dev/null; then
-    echo -e "${YELLOW}警告: 未检测到 Docker，跳过配置。${NC}"
-    echo -e "${YELLOW}如需使用 Docker，请先安装 Docker 后手动配置。${NC}"
-else
-    echo -e "${GREEN}检测到 Docker 已安装。${NC}"
-
-    # 配置 Docker 镜像源
-    DOCKER_DAEMON_CONFIG="/etc/docker/daemon.json"
-
-    # 确保 /etc/docker 目录存在
-    if [ ! -d "/etc/docker" ]; then
-        echo -e "${YELLOW}创建 /etc/docker 目录...${NC}"
-        mkdir -p /etc/docker
-    fi
-
-    if [ -f "$DOCKER_DAEMON_CONFIG" ]; then
-        echo -e "${YELLOW}检测到已存在 $DOCKER_DAEMON_CONFIG，备份中...${NC}"
-        cp "$DOCKER_DAEMON_CONFIG" "${DOCKER_DAEMON_CONFIG}.bak"
-    fi
-
-    # 创建或更新 Docker 配置文件
-    cat > "$DOCKER_DAEMON_CONFIG" << 'EOF'
-{
-  "registry-mirrors": ["http://mirror.gcr.io"]
-}
-EOF
-
-    echo -e "${GREEN}Docker 镜像源已配置为 http://mirror.gcr.io${NC}"
-
-    # 重启 Docker 服务
-    echo -e "${YELLOW}--> 正在重启 Docker 服务...${NC}"
-    systemctl restart docker
-
-    if [ $? -eq 0 ]; then
-        echo -e "${GREEN}Docker 服务重启成功。${NC}"
-    else
-        echo -e "${RED}Docker 服务重启失败。${NC}"
-    fi
-
-    # 检查并配置 dae（如果存在）
-    if systemctl is-active --quiet dae; then
-        echo -e "${YELLOW}检测到 dae 服务正在运行，正在配置 Docker 网桥...${NC}"
-
-        # 获取所有 Docker 网桥接口
-        DOCKER_BRIDGES=$(ip a | grep -E '^[0-9]+: (docker|br-)' | awk -F': ' '{print $2}' | awk '{print $1}' | tr '\n' ',' | sed 's/,$//')
-
-        if [ -n "$DOCKER_BRIDGES" ]; then
-            DAE_CONFIG="/usr/local/etc/dae/config.dae"
-
-            if [ -f "$DAE_CONFIG" ]; then
-                echo -e "${YELLOW}检测到 dae 配置文件，正在更新...${NC}"
-                cp "$DAE_CONFIG" "${DAE_CONFIG}.bak"
-
-                # 更新 lan_interface 配置
-                if grep -q "^lan_interface:" "$DAE_CONFIG"; then
-                    sed -i "s/^lan_interface:.*/lan_interface: $DOCKER_BRIDGES/" "$DAE_CONFIG"
-                else
-                    echo -e "${YELLOW}在配置文件中添加 lan_interface 配置...${NC}"
-                    echo "lan_interface: $DOCKER_BRIDGES" >> "$DAE_CONFIG"
-                fi
-
-                # 重启 dae 服务
-                systemctl restart dae
-                echo -e "${GREEN}dae 服务已重启，Docker 网桥 ($DOCKER_BRIDGES) 已配置。${NC}"
-            else
-                echo -e "${YELLOW}未找到 dae 配置文件，跳过配置。${NC}"
-            fi
-        else
-            echo -e "${YELLOW}未检测到 Docker 网桥接口。${NC}"
-        fi
-    else
-        echo -e "${YELLOW}dae 服务未运行，跳过配置。${NC}"
-    fi
-fi
-echo
-
-# --- 步骤 4: 安装 x-ui-yg 脚本 ---
-echo -e "${GREEN}--- 步骤 4/4: 安装科学上网管理脚本 ---${NC}"
-echo -e "${YELLOW}--> 正在执行 x-ui-yg 安装脚本...${NC}"
-echo -e "${YELLOW}安装过程将是交互式的，请根据提示进行操作。${NC}"
-bash <(curl -Ls https://raw.githubusercontent.com/yonggekkk/x-ui-yg/main/install.sh)
-echo
-
-# --- 结束 ---
-echo -e "${GREEN}=====================================================${NC}"
-echo -e "${GREEN}          🎉 恭喜！服务器初始化完成！ 🎉             ${NC}"
-echo -e "${GREEN}=====================================================${NC}"
-echo
-echo -e "操作摘要:"
-echo -e "1. ${GREEN}Root 登录已开启${NC}，你可以使用新设置的密码通过 SSH 客户端（如 Putty, iTerm2）登录。"
-echo -e "2. ${GREEN}1Panel 管理面板已安装${NC}，请根据上面打印出的 ${YELLOW}面板地址、用户名和密码${NC} 访问。"
-echo -e "3. ${GREEN}Docker 镜像源已配置为 http://mirror.gcr.io${NC}，dae 网桥已配置（如适用）。"
-echo -e "4. ${GREEN}x-ui-yg 已安装${NC}，请根据安装提示访问管理面板。"
-echo
-echo -e "${YELLOW}重要提示: 如果你安装了任何需要开放端口的服务（如 1Panel），请务必在云服务商（GCP, Azure等）的防火墙/安全组规则中放行相应的端口！${NC}"
-echo
