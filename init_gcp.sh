@@ -23,6 +23,13 @@ YELLOW='\033[1;33m'
 RED='\033[0;31m'
 NC='\033[0m' # No Color
 
+# 确保脚本使用 bash 执行
+if [ -z "$BASH_VERSION" ]; then
+    echo -e "${RED}错误: 此脚本需要 Bash shell 才能运行。${NC}"
+    echo -e "${YELLOW}请使用 'bash $0' 或 './$0' 运行此脚本，不要使用 'sh $0'。${NC}"
+    exit 1
+fi
+
 # 脚本信息
 SCRIPT_VERSION="1.3"
 SCRIPT_URL="https://raw.githubusercontent.com/foobar-ai/gcp_free/master/init_gcp.sh"
@@ -124,7 +131,7 @@ EOF
 
         # 检查并配置 dae（如果存在）
         # 增加延时，确保 Docker 网桥完全就绪
-        sleep 2
+        sleep 10
 
         if systemctl is-active --quiet dae; then
             echo -e "${YELLOW}检测到 dae 服务正在运行，正在配置 Docker 网桥...${NC}"
