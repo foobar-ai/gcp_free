@@ -124,7 +124,7 @@ EOF
 
         # 检查并配置 dae（如果存在）
         # 增加延时，确保 Docker 网桥完全就绪
-        sleep 10
+        sleep 2
 
         if systemctl is-active --quiet dae; then
             echo -e "${YELLOW}检测到 dae 服务正在运行，正在配置 Docker 网桥...${NC}"
@@ -152,23 +152,12 @@ EOF
 
                     # 重启 dae 服务
                     echo -e "${YELLOW}--> 正在重启 dae 服务以应用配置...${NC}"
-                    systemctl restart dae
+                    echo -e "${YELLOW}请手动执行: systemctl restart dae${NC}"
+                    echo -e "${YELLOW}如果启动失败，请检查配置文件: /usr/local/etc/dae/config.dae${NC}"
                     
-                    # 检查重启是否成功
-                    if systemctl is-active --quiet dae; then
-                        echo -e "${GREEN}dae 服务重启成功，Docker 网桥 ($DOCKER_BRIDGES) 已配置。${NC}"
-                    else
-                        echo -e "${RED}错误: dae 服务重启失败！正在还原配置文件...${NC}"
-                        # 还原备份
-                        mv "${DAE_CONFIG}.bak" "$DAE_CONFIG"
-                        
-                        echo -e "${RED}=====================================================${NC}"
-                        echo -e "${RED}dae 启动失败，已还原配置。请检查以下日志：${NC}"
-                        echo -e "${RED}=====================================================${NC}"
-                        # 打印 dae 最近的错误日志
-                        journalctl -xeu dae.service --no-pager -n 20
-                        echo -e "${RED}=====================================================${NC}"
-                    fi
+                    # 移除自动重启和检查逻辑
+                    # systemctl restart dae
+                    # ...
                 else
                     echo -e "${YELLOW}未找到 dae 配置文件，跳过配置。${NC}"
                 fi
