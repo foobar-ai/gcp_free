@@ -88,6 +88,16 @@ echo
 echo -e "${YELLOW}提示: 使用 '$0 --update' 或 '$0 -u' 可更新脚本到最新版本${NC}"
 echo
 
+# 检查是否通过管道执行（curl ... | bash）
+if [ "$0" = "bash" ] || [ "$0" = "/bin/bash" ] || [ "$0" = "/usr/bin/bash" ]; then
+    echo -e "${RED}警告: 检测到脚本通过管道方式执行。${NC}"
+    echo -e "${YELLOW}这种方式无法交互式设置 root 密码。${NC}"
+    echo -e "${YELLOW}请使用以下方式重新运行脚本:${ ${NC}"
+    echo -e "${GREEN}  curl -O ${SCRIPT_URL} && sudo bash init_gcp.sh${NC}"
+    echo
+    exit 1
+fi
+
 # 检查是否为 root 用户
 if [ "$(id -u)" -ne 0 ]; then
    echo -e "${RED}错误: 此脚本必须以 root 用户身份运行。${NC}"
