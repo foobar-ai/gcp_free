@@ -172,25 +172,6 @@ EOF
         else
             echo -e "${YELLOW}dae 服务未安装，跳过配置。${NC}"
         fi
-                    echo -e "${YELLOW}Docker 网桥列表: $DOCKER_BRIDGES${NC}"
-
-                    # 重启 dae 服务
-                    echo -e "${YELLOW}--> 正在重启 dae 服务以应用配置...${NC}"
-                    echo -e "${YELLOW}请手动执行: systemctl restart dae${NC}"
-                    echo -e "${YELLOW}如果启动失败，请检查配置文件: /usr/local/etc/dae/config.dae${NC}"
-                    
-                    # 移除自动重启和检查逻辑
-                    # systemctl restart dae
-                    # ...
-                else
-                    echo -e "${YELLOW}未找到 dae 配置文件，跳过配置。${NC}"
-                fi
-            else
-                echo -e "${YELLOW}未检测到 Docker 网桥接口。${NC}"
-            fi
-        else
-            echo -e "${YELLOW}dae 服务未运行，跳过配置。${NC}"
-        fi
     fi
     echo
     read -p "按回车键返回菜单..."
@@ -211,7 +192,6 @@ install_xui() {
         
         # 执行脚本
         bash "$XUI_SCRIPT"
-        rm -f "$XUI_SCRIPT"
     else
         echo -e "${RED}错误: 无法下载 x-ui-yg 安装脚本。${NC}"
     fi
