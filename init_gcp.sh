@@ -201,8 +201,21 @@ install_xui() {
     echo -e "${GREEN}--- 安装 x-ui-yg 科学上网脚本 ---${NC}"
     echo -e "${YELLOW}--> 正在执行 x-ui-yg 安装脚本...${NC}"
     echo -e "${YELLOW}安装过程将是交互式的，请根据提示进行操作。${NC}"
-    # 使用 Process Substitution (Bash 特性)
-    bash <(curl -Ls https://raw.githubusercontent.com/yonggekkk/x-ui-yg/main/install.sh)
+    
+    # 下载脚本到临时文件
+    local XUI_SCRIPT="/tmp/xui_install.sh"
+    if curl -Ls https://raw.githubusercontent.com/yonggekkk/x-ui-yg/main/install.sh -o "$XUI_SCRIPT"; then
+        # 强制设置 v4 变量，防止脚本误判为纯 IPv6 环境而修改 DNS
+        echo -e "${YELLOW}正在修正 x-ui-yg 脚本的 IPv4 检测逻辑...${NC}"
+        sed -i 's/v4=$(curl -s4m5 icanhazip.com -k)/v4="1.1.1.1"/' "$XUI_SCRIPT"
+        
+        # 执行脚本
+        bash "$XUI_SCRIPT"
+        rm -f "$XUI_SCRIPT"
+    else
+        echo -e "${RED}错误: 无法下载 x-ui-yg 安装脚本。${NC}"
+    fi
+    
     echo
     read -p "按回车键返回菜单..."
 }
