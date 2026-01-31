@@ -129,8 +129,21 @@ echo -e "SSH 服务已重启。"
 
 # 设置 root 密码
 echo -e "${YELLOW}接下来，请为 root 用户设置一个安全的登录密码:${NC}"
-passwd root
-echo -e "${GREEN}Root 密码设置成功！现在你可以通过 SSH 客户端使用 root 和新密码登录。${NC}"
+
+PASSWORD_SET_SUCCESS=false
+while [ "$PASSWORD_SET_SUCCESS" = false ]; do
+    if passwd root; then
+        PASSWORD_SET_SUCCESS=true
+        echo -e "${GREEN}Root 密码设置成功！现在你可以通过 SSH 客户端使用 root 和新密码登录。${NC}"
+    else
+        echo -e "${RED}密码设置失败，请重试。${NC}"
+        read -p "是否跳过设置 root 密码? (y/n) [默认 n]: " SKIP_PASSWORD
+        if [[ "$SKIP_PASSWORD" =~ ^[yY](es)?$ ]]; then
+            echo -e "${YELLOW}已跳过设置 root 密码。${NC}"
+            PASSWORD_SET_SUCCESS=true
+        fi
+    fi
+done
 echo
 
 # --- 步骤 2: 安装服务器管理面板 ---
