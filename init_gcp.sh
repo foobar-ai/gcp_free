@@ -124,7 +124,7 @@ EOF
 
         # 检查并配置 dae（如果存在）
         # 增加延时，确保 Docker 网桥完全就绪
-        sleep 2
+        sleep 10
 
         if systemctl is-active --quiet dae; then
             echo -e "${YELLOW}检测到 dae 服务正在运行，正在配置 Docker 网桥...${NC}"
