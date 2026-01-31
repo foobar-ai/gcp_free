@@ -169,6 +169,13 @@ else
 
     # 配置 Docker 镜像源
     DOCKER_DAEMON_CONFIG="/etc/docker/daemon.json"
+
+    # 确保 /etc/docker 目录存在
+    if [ ! -d "/etc/docker" ]; then
+        echo -e "${YELLOW}创建 /etc/docker 目录...${NC}"
+        mkdir -p /etc/docker
+    fi
+
     if [ -f "$DOCKER_DAEMON_CONFIG" ]; then
         echo -e "${YELLOW}检测到已存在 $DOCKER_DAEMON_CONFIG，备份中...${NC}"
         cp "$DOCKER_DAEMON_CONFIG" "${DOCKER_DAEMON_CONFIG}.bak"
